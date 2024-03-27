@@ -1,4 +1,4 @@
-# errsole-mongodb
+# errsole-sequelize
 A Sequelize logging module for Node.js applications, designed to simplify the logging of information and errors into a database managed by Sequelize. This module provides a straightforward way to log messages from your Node.js applications and retrieve them for monitoring or debugging purposes
 # Features
 Easy integration with Node.js applications.
