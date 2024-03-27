@@ -1,1 +1,0 @@
-# errsole-sequelize
