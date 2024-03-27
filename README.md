@@ -15,7 +15,7 @@ npm install errsole-sequelize
 First, ensure your relational database is running and accessible from your application. Then, follow these steps to integrate errsole-sequelize into your Node.js application
 
 # initialization
-In your main application file, initialize the errsole-sequelize module with the database connection details:
+In your main application file, initialize the errsole-sequelize module by providing the Sequelize database connection details. This module supports various databases, including MySQL, PostgreSQL, SQLite, MSSQL, etc.
 ```javascript
 const errsoleSequelize = require('errsole-sequelize');
 const storage = new errsoleSequelize({
