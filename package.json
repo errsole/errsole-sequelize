@@ -1,6 +1,6 @@
 {
   "name": "errsole-sequelize",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "A Sequelize logging module for Node.js applications that automatically captures all logs.",
   "main": "lib/index.js",
   "scripts": {
