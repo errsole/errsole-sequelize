@@ -1,16 +1,18 @@
 {
   "name": "errsole-sequelize",
-  "version": "1.0.0",
-  "description": "A Sequelize logging module for Node.js applications that automatically captures all logs.",
+  "version": "1.1.0",
+  "description": "Sequelize storage plugin for Errsole",
   "main": "lib/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
+    "errsole",
     "sequelize",
+    "logs",
     "logging",
-    "nodejs",
-    "errsole"
+    "logger",
+    "loglevel"
   ],
   "license": "MIT",
   "dependencies": {
