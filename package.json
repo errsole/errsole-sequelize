@@ -1,6 +1,6 @@
 {
   "name": "errsole-sequelize",
-  "version": "1.1.1",
+  "version": "1.1.0",
   "description": "Sequelize storage plugin for Errsole",
   "main": "lib/index.js",
   "scripts": {
