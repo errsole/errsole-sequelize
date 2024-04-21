@@ -1,6 +1,6 @@
 {
   "name": "errsole-sequelize",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Sequelize storage plugin for Errsole",
   "main": "lib/index.js",
   "scripts": {
@@ -9,10 +9,10 @@
   "keywords": [
     "errsole",
     "sequelize",
+    "log",
     "logs",
     "logging",
-    "logger",
-    "loglevel"
+    "logger"
   ],
   "license": "MIT",
   "dependencies": {
