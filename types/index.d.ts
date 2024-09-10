@@ -1,5 +1,5 @@
 declare module 'errsole-sequelize' {
-    import { SequelizeOptions } from 'sequelize';
+    import { Options } from 'sequelize';
   
     interface Log {
       id?: number;
@@ -26,7 +26,7 @@ declare module 'errsole-sequelize' {
     }
   
     class ErrsoleSequelize {
-      constructor(options: SequelizeOptions);
+      constructor(options: Options);
   
       getConfig(key: string): Promise<{ item: Config }>;
       setConfig(key: string, value: string): Promise<{ item: Config }>;
