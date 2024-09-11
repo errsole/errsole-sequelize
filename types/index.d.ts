@@ -10,6 +10,7 @@ declare module 'errsole-sequelize' {
       level: string;
       message: string;
       meta?: string;
+      errsole_id?: number | null; 
     }
   
     interface Config {
