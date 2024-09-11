@@ -33,6 +33,7 @@ declare module 'errsole-sequelize' {
       deleteConfig(key: string): Promise<{}>;
   
       postLogs(logEntries: Log[]): Promise<{}>;
+      getHostnames(): Promise<{ items: string[] }>;
       getLogs(filters?: any): Promise<{ items: Log[] }>;
       searchLogs(searchTerms: string[], filters?: any): Promise<{ items: Log[] }>;
   

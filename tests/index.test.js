@@ -118,15 +118,18 @@ describe('ErrsoleSequelize', () => {
           timestamp: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
           level: { type: DataTypes.STRING, allowNull: false, defaultValue: 'info' },
           message: DataTypes.TEXT,
-          meta: DataTypes.TEXT
+          meta: DataTypes.TEXT,
+          errsole_id: { type: DataTypes.BIGINT, allowNull: true }
         },
         {
-          tableName: 'errsole_logs',
+          tableName: 'errsole_logs_v2',
           timestamps: false,
           indexes: [
             { fields: ['source', 'level', 'id'] },
             { fields: ['source', 'level', 'timestamp'] },
-            { fields: ['hostname', 'pid', 'id'] }
+            { fields: ['hostname', 'pid', 'id'] },
+            { fields: ['errsole_id'] }
+
           ]
         }
       );
