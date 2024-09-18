@@ -10,8 +10,10 @@ jest.mock('bcryptjs', () => ({
 }));
 
 jest.mock('sequelize', () => {
-  const mSequelize = {
-    define: jest.fn(),
+  const defineMock = jest.fn();
+
+  const SequelizeMock = jest.fn(() => ({
+    define: defineMock,
     sync: jest.fn(),
     authenticate: jest.fn(),
     getQueryInterface: jest.fn().mockReturnValue({
@@ -25,9 +27,29 @@ jest.mock('sequelize', () => {
     update: jest.fn(),
     count: jest.fn(),
     destroy: jest.fn()
+  }));
+
+  const fn = jest.fn((fnName, colName) => `${fnName}(${colName})`);
+  const col = jest.fn((colName) => colName);
+
+  const Op = {
+    in: Symbol('in'),
+    or: Symbol('or'),
+    and: Symbol('and'),
+    lt: Symbol('lt'),
+    gt: Symbol('gt'),
+    lte: Symbol('lte'),
+    gte: Symbol('gte'),
+    ne: Symbol('ne'),
+    not: Symbol('not')
   };
+
+  SequelizeMock.Op = Op;
+  SequelizeMock.fn = fn;
+  SequelizeMock.col = col;
+
   return {
-    Sequelize: jest.fn(() => mSequelize),
+    Sequelize: SequelizeMock,
     DataTypes: {
       BIGINT: jest.fn(),
       STRING: jest.fn(),
@@ -36,15 +58,9 @@ jest.mock('sequelize', () => {
       NOW: jest.fn(),
       TEXT: jest.fn()
     },
-    Op: {
-      in: 'in',
-      or: 'or',
-      and: 'and',
-      lt: 'lt',
-      gt: 'gt',
-      lte: 'lte',
-      gte: 'gte'
-    }
+    Op,
+    fn,
+    col
   };
 });
 
@@ -91,14 +107,6 @@ describe('ErrsoleSequelize', () => {
     jest.clearAllMocks();
     jest.useRealTimers();
     console.error.mockRestore();
-  });
-
-  describe('#constructor', () => {
-    it('should initialize Sequelize instance and define models', async () => {
-      expect(sequelizeInstance.define).toHaveBeenCalled();
-      await errsoleSequelize.syncModels();
-      expect(sequelizeInstance.sync).toHaveBeenCalled();
-    });
   });
 
   describe('#defineModels', () => {
@@ -420,6 +428,23 @@ describe('ErrsoleSequelize', () => {
       expect(result).toEqual({ items: logs });
     });
 
+    it('should reverse result if shouldReverse is true', async () => {
+      const mockResult = [{ id: 2, message: 'Log 2' }, { id: 1, message: 'Log 1' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(mockResult);
+
+      const result = await errsoleSequelize.getLogs();
+
+      expect(result.items).toEqual([{ id: 1, message: 'Log 1' }, { id: 2, message: 'Log 2' }]);
+    });
+
+    it('should return an empty array if no logs are found', async () => {
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce([]);
+
+      const result = await errsoleSequelize.getLogs();
+
+      expect(result).toEqual({ items: [] });
+    });
+
     it('should apply pid filter', async () => {
       const logs = [{ id: 1, pid: 1234, message: 'test log' }];
       errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
@@ -430,6 +455,266 @@ describe('ErrsoleSequelize', () => {
         where: { pid: 1234 }
       }));
       expect(result).toEqual({ items: logs });
+    });
+
+    it('should apply level_json filter when level_json is provided', async () => {
+      const filters = {
+        level_json: [
+          { source: 'source1', level: 'info' },
+          { source: 'source2', level: 'error' }
+        ]
+      };
+
+      const logs = [{ id: 1, source: 'source1', level: 'info' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          [Op.or]: [
+            {
+              [Op.or]: [
+                { [Op.and]: [{ source: 'source1' }, { level: 'info' }] },
+                { [Op.and]: [{ source: 'source2' }, { level: 'error' }] }
+              ]
+            }
+          ]
+        }
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply errsole_id filter when errsole_id is provided', async () => {
+      const filters = { errsole_id: 12345 };
+      const logs = [{ id: 1, errsole_id: 12345 }];
+
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          [Sequelize.Op.or]: [{ errsole_id: 12345 }]
+        }
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply both level_json and errsole_id filters when both are provided', async () => {
+      const filters = {
+        level_json: [
+          { source: 'source1', level: 'info' },
+          { source: 'source2', level: 'error' }
+        ],
+        errsole_id: 12345
+      };
+
+      const logs = [{ id: 1, source: 'source1', level: 'info', errsole_id: 12345 }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          [Sequelize.Op.or]: [
+            {
+              [Sequelize.Op.or]: [
+                { [Sequelize.Op.and]: [{ source: 'source1' }, { level: 'info' }] },
+                { [Sequelize.Op.and]: [{ source: 'source2' }, { level: 'error' }] }
+              ]
+            },
+            { errsole_id: 12345 }
+          ]
+        }
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should return all logs when no filters are provided', async () => {
+      const logs = [{ id: 1, source: 'source1', level: 'info' }];
+
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs();
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {}
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply lte_timestamp filter and sort logs by descending timestamp', async () => {
+      const filters = {
+        lte_timestamp: '2023-09-10T23:59:59Z'
+      };
+
+      const logs = [
+        { id: 1, message: 'Log before 2023-09-10', timestamp: '2023-09-09T12:00:00Z' },
+        { id: 2, message: 'Another log before 2023-09-10', timestamp: '2023-09-10T08:00:00Z' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          timestamp: {
+            [Sequelize.Op.lte]: new Date('2023-09-10T23:59:59Z')
+          }
+        },
+        order: [['timestamp', 'DESC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply gte_timestamp filter and sort logs by ascending timestamp', async () => {
+      const filters = {
+        gte_timestamp: '2023-09-10T00:00:00Z'
+      };
+
+      const logs = [
+        { id: 1, message: 'Log after 2023-09-10', timestamp: '2023-09-10T12:00:00Z' },
+        { id: 2, message: 'Another log after 2023-09-10', timestamp: '2023-09-11T08:00:00Z' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          timestamp: {
+            [Sequelize.Op.gte]: new Date('2023-09-10T00:00:00Z')
+          }
+        },
+        order: [['timestamp', 'ASC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply both gte_timestamp and lte_timestamp filters and sort logs by ascending timestamp', async () => {
+      const filters = {
+        gte_timestamp: '2023-09-01T00:00:00Z',
+        lte_timestamp: '2023-09-10T23:59:59Z'
+      };
+
+      const logs = [
+        { id: 1, message: 'Log between timestamps', timestamp: '2023-09-05T12:00:00Z' },
+        { id: 2, message: 'Another log between timestamps', timestamp: '2023-09-09T08:00:00Z' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          timestamp: {
+            [Sequelize.Op.gte]: new Date('2023-09-01T00:00:00Z'),
+            [Sequelize.Op.lte]: new Date('2023-09-10T23:59:59Z')
+          }
+        },
+        order: [['timestamp', 'ASC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should handle both lte_timestamp and gte_timestamp filters with conflicting sort order', async () => {
+      const filters = {
+        lte_timestamp: '2023-09-10T23:59:59Z',
+        gte_timestamp: '2023-09-05T00:00:00Z'
+      };
+
+      const logs = [
+        { id: 1, message: 'Log in date range', timestamp: '2023-09-06T12:00:00Z' },
+        { id: 2, message: 'Another log in date range', timestamp: '2023-09-10T08:00:00Z' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          timestamp: {
+            [Sequelize.Op.gte]: new Date('2023-09-05T00:00:00Z'),
+            [Sequelize.Op.lte]: new Date('2023-09-10T23:59:59Z')
+          }
+        },
+        order: [['timestamp', 'ASC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply multiple hostnames filter', async () => {
+      const searchTerms = ['error'];
+      const filters = { hostnames: ['localhost', 'server1'] };
+
+      const logs = [{ id: 1, message: 'error', hostname: 'localhost' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          hostname: { [Op.in]: ['localhost', 'server1'] }
+        },
+        limit: 100,
+        order: [['id', 'DESC']],
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should return logs sorted by descending timestamp when only lte_timestamp is provided', async () => {
+      const filters = {
+        lte_timestamp: '2023-09-15T23:59:59Z'
+      };
+
+      const logs = [
+        { id: 1, message: 'Older log', timestamp: '2023-09-12T12:00:00Z' },
+        { id: 2, message: 'Recent log', timestamp: '2023-09-15T08:00:00Z' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          timestamp: {
+            [Sequelize.Op.lte]: new Date('2023-09-15T23:59:59Z')
+          }
+        },
+        order: [['timestamp', 'DESC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
     });
 
     it('should handle default behavior without filters', async () => {
@@ -460,6 +745,524 @@ describe('ErrsoleSequelize', () => {
         attributes: { exclude: ['meta'] },
         raw: true
       }));
+    });
+  });
+
+  describe('#searchLogs', () => {
+    let errsoleSequelize;
+
+    beforeEach(() => {
+      errsoleSequelize = new ErrsoleSequelize({ dialect: 'sqlite', logging: false });
+
+      // Mock the errsoleLogs model's findAll method
+      errsoleSequelize.errsoleLogs = {
+        findAll: jest.fn()
+      };
+    });
+
+    afterEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should search logs with search terms and apply limit by default', async () => {
+      const searchTerms = ['error', 'server'];
+      const filters = {};
+
+      const logs = [{ id: 1, message: 'server error occurred' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [
+              { [Op.like]: '%error%' },
+              { [Op.like]: '%server%' }
+            ]
+          }
+        },
+        limit: 100,
+        order: [['id', 'DESC']],
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply hostname filter', async () => {
+      const searchTerms = ['error'];
+      const filters = { hostname: 'localhost' };
+
+      const logs = [{ id: 1, message: 'error', hostname: 'localhost' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          hostname: 'localhost'
+        },
+        limit: 100,
+        order: [['id', 'DESC']],
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply multiple hostnames filter', async () => {
+      const searchTerms = ['error'];
+      const filters = { hostnames: ['localhost', 'server1'] };
+
+      const logs = [{ id: 1, message: 'error', hostname: 'localhost' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          hostname: { [Op.in]: ['localhost', 'server1'] }
+        },
+        limit: 100,
+        order: [['id', 'DESC']],
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply pid filter', async () => {
+      const searchTerms = ['error'];
+      const filters = { pid: 12345 };
+
+      const logs = [{ id: 1, message: 'error', pid: 12345 }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          pid: 12345
+        },
+        limit: 100,
+        order: [['id', 'DESC']],
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply sources filter', async () => {
+      const searchTerms = ['error'];
+      const filters = { sources: ['source1', 'source2'] };
+
+      const logs = [{ id: 1, message: 'error', source: 'source1' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          source: { [Op.in]: ['source1', 'source2'] }
+        },
+        limit: 100,
+        order: [['id', 'DESC']],
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply levels filter', async () => {
+      const searchTerms = ['error'];
+      const filters = { levels: ['info', 'error'] };
+
+      const logs = [{ id: 1, message: 'error', level: 'error' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          level: { [Op.in]: ['info', 'error'] }
+        },
+        limit: 100,
+        order: [['id', 'DESC']],
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply level_json and errsole_id filters', async () => {
+      const searchTerms = ['error'];
+      const filters = {
+        level_json: [
+          { source: 'source1', level: 'info' },
+          { source: 'source2', level: 'error' }
+        ],
+        errsole_id: 12345
+      };
+
+      const logs = [{ id: 1, message: 'error', source: 'source1', level: 'info', errsole_id: 12345 }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          [Op.or]: [
+            {
+              [Op.or]: [
+                { [Op.and]: [{ source: 'source1' }, { level: 'info' }] },
+                { [Op.and]: [{ source: 'source2' }, { level: 'error' }] }
+              ]
+            },
+            { errsole_id: 12345 }
+          ]
+        },
+        limit: 100,
+        order: [['id', 'DESC']],
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+    it('should apply lt_id filter and sort logs descending', async () => {
+      const searchTerms = ['error'];
+      const filters = { lt_id: 10 };
+
+      const logs = [{ id: 1, message: 'error' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          id: { [Op.lt]: 10 }
+        },
+        order: [['id', 'DESC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply gt_id filter and sort logs ascending', async () => {
+      const searchTerms = ['error'];
+      const filters = { gt_id: 5 };
+
+      const logs = [{ id: 6, message: 'error' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          id: { [Op.gt]: 5 }
+        },
+        order: [['id', 'ASC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply gte_timestamp filter', async () => {
+      const searchTerms = ['error'];
+      const filters = { gte_timestamp: '2023-09-01T00:00:00Z' };
+
+      const logs = [{ id: 1, message: 'error', timestamp: '2023-09-01T12:00:00Z' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          timestamp: {
+            [Op.gte]: new Date('2023-09-01T00:00:00Z'),
+            // Expecting an implicit lte timestamp 24 hours after gte_timestamp
+            [Op.lte]: new Date('2023-09-02T00:00:00Z')
+          }
+        },
+        order: [['id', 'ASC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply lte_timestamp filter', async () => {
+      const searchTerms = ['error'];
+      const filters = { lte_timestamp: '2023-09-10T23:59:59Z' };
+
+      const logs = [{ id: 1, message: 'error', timestamp: '2023-09-09T12:00:00Z' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          timestamp: {
+            [Op.lte]: new Date('2023-09-10T23:59:59Z'),
+            // Expecting an implicit gte timestamp 24 hours before lte_timestamp
+            [Op.gte]: new Date('2023-09-09T23:59:59Z')
+          }
+        },
+        order: [['id', 'DESC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply both gte_timestamp and lte_timestamp filters', async () => {
+      const searchTerms = ['error'];
+      const filters = {
+        gte_timestamp: '2023-09-01T00:00:00Z',
+        lte_timestamp: '2023-09-10T23:59:59Z'
+      };
+
+      const logs = [{ id: 1, message: 'error', timestamp: '2023-09-05T12:00:00Z' }];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.searchLogs(searchTerms, filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          message: {
+            [Op.and]: [{ [Op.like]: '%error%' }]
+          },
+          timestamp: {
+            [Op.gte]: new Date('2023-09-01T00:00:00Z'),
+            [Op.lte]: new Date('2023-09-10T23:59:59Z')
+          }
+        },
+        order: [['id', 'ASC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+  });
+
+  describe('#getLogs - ID Filters (lt_id and gt_id)', () => {
+    let errsoleSequelize;
+
+    beforeEach(() => {
+      errsoleSequelize = new ErrsoleSequelize({ dialect: 'sqlite', logging: false });
+      errsoleSequelize.errsoleLogs = {
+        findAll: jest.fn()
+      };
+    });
+
+    afterEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should apply lt_id filter and sort logs by descending ID', async () => {
+      const filters = {
+        lt_id: 100
+      };
+
+      const logs = [
+        { id: 99, message: 'Log with ID 99' },
+        { id: 98, message: 'Log with ID 98' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          id: { [Sequelize.Op.lt]: 100 }
+        },
+        order: [['id', 'DESC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should apply gt_id filter and sort logs by ascending ID', async () => {
+      const filters = {
+        gt_id: 100
+      };
+
+      const logs = [
+        { id: 101, message: 'Log with ID 101' },
+        { id: 102, message: 'Log with ID 102' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          id: { [Sequelize.Op.gt]: 100 }
+        },
+        order: [['id', 'ASC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      expect(result.items).toEqual(logs);
+    });
+
+    it('should handle both lt_id and gt_id filters separately', async () => {
+      const filtersLt = {
+        lt_id: 100
+      };
+      const filtersGt = {
+        gt_id: 50
+      };
+
+      const logsLt = [
+        { id: 99, message: 'Log with ID 99' },
+        { id: 98, message: 'Log with ID 98' }
+      ];
+      const logsGt = [
+        { id: 51, message: 'Log with ID 51' },
+        { id: 52, message: 'Log with ID 52' }
+      ];
+
+      // Test lt_id filter
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logsLt);
+      let result = await errsoleSequelize.getLogs(filtersLt);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          id: { [Sequelize.Op.lt]: 100 }
+        },
+        order: [['id', 'DESC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+      expect(result.items).toEqual(logsLt);
+
+      // Test gt_id filter
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logsGt);
+      result = await errsoleSequelize.getLogs(filtersGt);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          id: { [Sequelize.Op.gt]: 50 }
+        },
+        order: [['id', 'ASC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+      expect(result.items).toEqual(logsGt);
+    });
+
+    it('should reverse the result when lt_id is applied and shouldReverse is true', async () => {
+      const filters = {
+        lt_id: 100
+      };
+
+      const logs = [
+        { id: 98, message: 'Log with ID 98' },
+        { id: 99, message: 'Log with ID 99' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          id: { [Sequelize.Op.lt]: 100 }
+        },
+        order: [['id', 'DESC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      // Confirm that logs are reversed
+      expect(result.items).toEqual([
+        { id: 99, message: 'Log with ID 99' },
+        { id: 98, message: 'Log with ID 98' }
+      ]);
+    });
+
+    it('should not reverse the result when gt_id is applied and shouldReverse is false', async () => {
+      const filters = {
+        gt_id: 100
+      };
+
+      const logs = [
+        { id: 101, message: 'Log with ID 101' },
+        { id: 102, message: 'Log with ID 102' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(logs);
+
+      const result = await errsoleSequelize.getLogs(filters);
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          id: { [Sequelize.Op.gt]: 100 }
+        },
+        order: [['id', 'ASC']],
+        limit: 100,
+        attributes: { exclude: ['meta'] },
+        raw: true
+      }));
+
+      // Confirm that logs are not reversed (they should be in ascending order)
+      expect(result.items).toEqual(logs);
     });
   });
 
@@ -567,39 +1370,122 @@ describe('ErrsoleSequelize', () => {
 
   describe('#deleteExpiredLogs', () => {
     let errsoleSequelize;
+    let delaySpy;
 
     beforeEach(() => {
       errsoleSequelize = new ErrsoleSequelize({ dialect: 'sqlite', logging: false });
-
-      // Mock the getConfig and errsoleLogs methods
-      errsoleSequelize.getConfig = jest.fn();
       errsoleSequelize.errsoleLogs = {
         destroy: jest.fn()
       };
-
-      // Mock the delay method
-      jest.spyOn(errsoleSequelize, 'delay').mockResolvedValue();
+      delaySpy = jest.spyOn(errsoleSequelize, 'delay').mockImplementation(() => Promise.resolve());
+      errsoleSequelize.getConfig = jest.fn();
+      errsoleSequelize.deleteExpiredLogsRunning = false;
     });
 
     afterEach(() => {
       jest.clearAllMocks();
-      jest.useRealTimers();
     });
 
-    it('should set deleteExpiredLogsRunning to true during execution and false afterwards', async () => {
-      errsoleSequelize.getConfig.mockResolvedValueOnce({});
-      errsoleSequelize.errsoleLogs.destroy.mockResolvedValueOnce(0);
+    it('should do nothing if deleteExpiredLogs is already running', async () => {
+      errsoleSequelize.deleteExpiredLogsRunning = true;
 
       await errsoleSequelize.deleteExpiredLogs();
 
-      expect(errsoleSequelize.deleteExpiredLogsRunning).toBe(false);
+      expect(errsoleSequelize.errsoleLogs.destroy).not.toHaveBeenCalled();
     });
 
-    it('should set deleteExpiredLogsRunning to false if an error occurs', async () => {
-      const error = new Error('Deletion error');
+    it('should delete expired logs using default TTL (30 days) if no config is found', async () => {
+      errsoleSequelize.getConfig.mockResolvedValueOnce({});
+
+      errsoleSequelize.errsoleLogs.destroy.mockResolvedValueOnce(500); // Assume 500 logs were deleted
+
+      await errsoleSequelize.deleteExpiredLogs();
+
+      const expectedExpirationTime = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
+
+      expect(errsoleSequelize.errsoleLogs.destroy).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          timestamp: { [Sequelize.Op.lt]: expectedExpirationTime }
+        },
+        limit: 1000
+      }));
+      expect(delaySpy).toHaveBeenCalled();
+    });
+
+    it('should delete expired logs using custom TTL from config', async () => {
+      errsoleSequelize.getConfig.mockResolvedValueOnce({
+        item: { value: '60' } // TTL set to 60ms for testing purposes
+      });
+
+      errsoleSequelize.errsoleLogs.destroy.mockResolvedValueOnce(500); // Assume 500 logs were deleted
+
+      await errsoleSequelize.deleteExpiredLogs();
+
+      const expectedExpirationTime = new Date(Date.now() - 60);
+
+      expect(errsoleSequelize.errsoleLogs.destroy).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          timestamp: { [Sequelize.Op.lt]: expectedExpirationTime }
+        },
+        limit: 1000
+      }));
+      expect(delaySpy).toHaveBeenCalled();
+    });
+
+    it('should use default TTL if the config TTL is invalid', async () => {
+      errsoleSequelize.getConfig.mockResolvedValueOnce({
+        item: { value: 'invalid-ttl' } // Invalid TTL
+      });
+
+      errsoleSequelize.errsoleLogs.destroy.mockResolvedValueOnce(500); // Assume 500 logs were deleted
+
+      await errsoleSequelize.deleteExpiredLogs();
+
+      const expectedExpirationTime = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
+
+      expect(errsoleSequelize.errsoleLogs.destroy).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          timestamp: { [Sequelize.Op.lt]: expectedExpirationTime }
+        },
+        limit: 1000
+      }));
+      expect(delaySpy).toHaveBeenCalled();
+    });
+
+    it('should stop deleting logs when there are no more rows to delete', async () => {
+      errsoleSequelize.getConfig.mockResolvedValueOnce({});
+
+      errsoleSequelize.errsoleLogs.destroy
+        .mockResolvedValueOnce(1000) // First batch deletes 1000 logs
+        .mockResolvedValueOnce(500) // Second batch deletes 500 logs
+        .mockResolvedValueOnce(0); // No more logs to delete
+
+      await errsoleSequelize.deleteExpiredLogs();
+
+      expect(errsoleSequelize.errsoleLogs.destroy).toHaveBeenCalledTimes(3);
+      expect(delaySpy).toHaveBeenCalledTimes(3);
+    });
+
+    it('should handle errors gracefully', async () => {
+      // Mock console.error without restoring it, just resetting after the test
+      const consoleErrorSpy = jest.spyOn(global.console, 'error').mockImplementation(() => {});
 
       errsoleSequelize.getConfig.mockResolvedValueOnce({});
-      errsoleSequelize.errsoleLogs.destroy.mockRejectedValueOnce(error);
+      errsoleSequelize.errsoleLogs.destroy.mockRejectedValueOnce(new Error('Deletion error'));
+
+      await errsoleSequelize.deleteExpiredLogs();
+
+      // Ensure console.error was called with the expected error
+      expect(consoleErrorSpy).toHaveBeenCalledWith(new Error('Deletion error'));
+      expect(errsoleSequelize.deleteExpiredLogsRunning).toBe(false);
+
+      // Reset the mock rather than restoring it
+      consoleErrorSpy.mockReset();
+    });
+
+    it('should reset deleteExpiredLogsRunning flag to false after completion', async () => {
+      errsoleSequelize.getConfig.mockResolvedValueOnce({});
+      errsoleSequelize.errsoleLogs.destroy.mockResolvedValueOnce(0); // No logs to delete
 
       await errsoleSequelize.deleteExpiredLogs();
 
@@ -1099,6 +1985,108 @@ describe('ErrsoleSequelize', () => {
 
       expect(errsoleSequelize.errsoleUsers.findOne).toHaveBeenCalledWith({ where: { id: 1 } });
       expect(user.destroy).toHaveBeenCalled();
+    });
+  });
+
+  describe('#getHostnames', () => {
+    let errsoleSequelize;
+
+    beforeEach(() => {
+      errsoleSequelize = new ErrsoleSequelize({ dialect: 'sqlite', logging: false });
+      errsoleSequelize.errsoleLogs = {
+        findAll: jest.fn(),
+        findOne: jest.fn() // Mock findOne for getConfig
+      };
+    });
+
+    afterEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should retrieve distinct hostnames, sorted alphabetically', async () => {
+      const hostnamesData = [
+        { hostname: 'localhost' },
+        { hostname: 'server1' },
+        { hostname: 'server2' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(hostnamesData);
+
+      const result = await errsoleSequelize.getHostnames();
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith({
+        attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('hostname')), 'hostname']],
+        where: {
+          hostname: {
+            [Op.ne]: '', // Filter out empty hostnames
+            [Op.not]: null // Filter out null hostnames
+          }
+        },
+        raw: true
+      });
+
+      expect(result.items).toEqual(['localhost', 'server1', 'server2'].sort());
+    });
+
+    it('should filter out empty and null hostnames', async () => {
+      const hostnamesData = [
+        { hostname: 'localhost' },
+        { hostname: null },
+        { hostname: '' },
+        { hostname: 'server1' }
+      ];
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce(hostnamesData.filter(row => row.hostname));
+
+      const result = await errsoleSequelize.getHostnames();
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith({
+        attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('hostname')), 'hostname']],
+        where: {
+          hostname: {
+            [Op.ne]: '',
+            [Op.not]: null
+          }
+        },
+        raw: true
+      });
+
+      expect(result.items).toEqual(['localhost', 'server1'].sort());
+    });
+
+    it('should return an empty list if no hostnames are found', async () => {
+      errsoleSequelize.errsoleLogs.findAll.mockResolvedValueOnce([]);
+
+      const result = await errsoleSequelize.getHostnames();
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith({
+        attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('hostname')), 'hostname']],
+        where: {
+          hostname: {
+            [Op.ne]: '',
+            [Op.not]: null
+          }
+        },
+        raw: true
+      });
+
+      expect(result.items).toEqual([]);
+    });
+
+    it('should throw an error if retrieval of hostnames fails', async () => {
+      const error = new Error('Database error');
+      errsoleSequelize.errsoleLogs.findAll.mockRejectedValueOnce(error);
+
+      await expect(errsoleSequelize.getHostnames()).rejects.toThrow('Failed to retrieve hostnames.');
+
+      expect(errsoleSequelize.errsoleLogs.findAll).toHaveBeenCalledWith({
+        attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('hostname')), 'hostname']],
+        where: {
+          hostname: {
+            [Op.ne]: '',
+            [Op.not]: null
+          }
+        },
+        raw: true
+      });
     });
   });
 });
