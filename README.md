@@ -1,4 +1,5 @@
 # errsole-sequelize
+<a href="https://coveralls.io/github/errsole/errsole-sequelize"><img src="https://coveralls.io/repos/github/errsole/errsole-sequelize/badge.svg" alt="Coverage Status" /></a>
 
 Sequelize storage plugin for Errsole.
 
