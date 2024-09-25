@@ -1,5 +1,5 @@
 declare module 'errsole-sequelize' {
-    import { SequelizeOptions } from 'sequelize';
+    import { Options } from 'sequelize';
   
     interface Log {
       id?: number;
@@ -10,6 +10,7 @@ declare module 'errsole-sequelize' {
       level: string;
       message: string;
       meta?: string;
+      errsole_id?: number | null; 
     }
   
     interface Config {
@@ -26,13 +27,14 @@ declare module 'errsole-sequelize' {
     }
   
     class ErrsoleSequelize {
-      constructor(options: SequelizeOptions);
+      constructor(options: Options);
   
       getConfig(key: string): Promise<{ item: Config }>;
       setConfig(key: string, value: string): Promise<{ item: Config }>;
       deleteConfig(key: string): Promise<{}>;
   
       postLogs(logEntries: Log[]): Promise<{}>;
+      getHostnames(): Promise<{ items: string[] }>;
       getLogs(filters?: any): Promise<{ items: Log[] }>;
       searchLogs(searchTerms: string[], filters?: any): Promise<{ items: Log[] }>;
   
